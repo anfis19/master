@@ -25,7 +25,7 @@ m1_pos = m_e3
 m1_ori = m_s3
 
 m3_pos = m_s2 * m_e1
-
+m_time = m_e1 * m_e3
 
 class Calinon:
     def __init__(self, points):
@@ -34,20 +34,35 @@ class Calinon:
         '''
         self.points = points
 
-        gmm_m1 = rs.GMM(m1_pos, 6)
-        print(m1_pos.np_to_manifold(points))
-        gmm_m1.kmeans(points)
-        lik,avglik = gmm_m1.fit(points, reg_lambda=1e-2, maxsteps = 500)
-        gmm_m3 = rs.GMM(m3_pos, 6)
-        gmm_m3.kmeans(points)
-        lik,avglik = gmm_m3.fit(points, reg_lambda=1e-2, maxsteps = 500)
+        # gmm_m1 = rs.GMM(m1_pos, 6)
+        # print(m1_pos.np_to_manifold(points))
+        # gmm_m1.kmeans(points)
+        # lik,avglik = gmm_m1.fit(points, reg_lambda=1e-2, maxsteps = 500)
+        # gmm_m3 = rs.GMM(m3_pos, 6)
+        # gmm_m3.kmeans(points)
+        # lik,avglik = gmm_m3.fit(points, reg_lambda=1e-2, maxsteps = 500)
+
 
     def create_gaussians(self):
         ''' Create a gaussian distribution for the given manifold
         '''
-        g = rs.Gaussian(m3_pos).mle(self.points)
-        g2 = rs.Gaussian(m1_pos).mle(self.points)
-        self.gaussians = [g.sigma, g2.sigma]
+        g = rs.Gaussian(m_time).mle(self.points)
+        print(g.mu)
+
+    def get_mean(self, demonstration, manifold, point):
+        ''' Takes a list of points at a time step, and returns the mean on a specified manifold.
+        '''
+        g = rs.Gaussian(manifold).mle(demonstration)
+        mu = g.mu
+        e = manifold.log(point, mu)
+        Q = np.eye(3)
+        e = e[1:].reshape(3,1)
+        print("Log: ",np.transpose(e).shape, " Point: ", e.shape)
+        c = np.matmul(np.matmul(e.T, Q), e)
+        print(c)
+        return mu
+
+
 
     def best_fit(self):
         # Returns the index of the gaussian with the smallest determinant
@@ -65,15 +80,27 @@ class Calinon:
 def main():
     startpts = np.array([0, 0, 0])
     endpts = np.array([12, 3, 8])
-
+    dems = pbddata.get_letter_dataS2(letter='I',n_samples=4,use_time=True)
+    data = [point for dem in dems for point in dem]
     line = np.vstack(pbddata.get_letter_dataS2(letter='I',n_samples=4,use_time=False))
-    new = np.linspace(0,1,800)
-    line = (line, new.reshape(800,1))
-
-    calinon = Calinon(line)
+    time = np.linspace(0,1,800)
+    print("Line shape: ", line.shape)
+    line = (line, np.flip(line, 0), time.reshape(800,1))
+    points = []
+    points2 = []
+    for i in data:
+        if i[0][0] == 0:
+            points.append(i)
+            print(points)
+        if i[0][0] == 0.82914573:
+            points.append(i)
+            print(points2)
+    point = list(zip(*line))[0]
+    calinon = Calinon(data)
     calinon.create_gaussians()
-    best_manifold = calinon.best_fit()
-    print(best_manifold)
+    print(calinon.get_mean(points, m_time,data[50]))
+    # best_manifold = calinon.best_fit()
+    # print(best_manifold)
 
 if __name__ == "__main__":
     main()
