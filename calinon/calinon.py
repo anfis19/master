@@ -179,9 +179,9 @@ class Calinon:
 def main():
     startpts = np.array([0, 0, 0])
     endpts = np.array([12, 3, 8])
-    dems = pbddata.get_letter_dataS2(letter='S',n_samples=1,use_time=True)
+    dems = pbddata.get_letter_dataS2(letter='S',n_samples=4,use_time=True)
     data = [point for dem in dems for point in dem]
-    #data = sorted(data, key=lambda x: x[0][0])
+    data = sorted(data, key=lambda x: x[0][0])
     print(data[0])
     line = np.vstack(pbddata.get_letter_dataS2(letter='S',n_samples=4,use_time=False))
     time = np.linspace(0,1,800)
@@ -232,25 +232,25 @@ def main():
     #fig = plt.figure()
 
     #syntax for 3-D projection
-    # plt.figure(figsize=(5,5) )
-    # ax = plt.subplot(111,projection='3d')
-    # s2_fcts.plot_manifold(ax)
-    # plt_data = m_t_s2.swapto_tupleoflist(data)
-    # plt.plot(plt_data[1][:,0],plt_data[1][:,1],plt_data[1][:,2],'.', label='Demonstration')     # Original Data
-    # plt_data = m_t_s2.swapto_tupleoflist(calinon.mean)
-    # plt.plot(plt_data[1][:,0],plt_data[1][:,1],plt_data[1][:,2],'.', label='Mean')     # Original Data
-    # label = 'Gaussian'
-    # #for r, s in zip(calinon.mean, calinon.sigma):
-    # #    s2_fcts.plot_gaussian(ax,r[1],s, showtangent=False,
-    # #                     linealpha=0.3,color='yellow',label=label)
-    # #    label=''
-    # plt.legend(); plt.show()
+    plt.figure(figsize=(5,5) )
+    ax = plt.subplot(111,projection='3d')
+    s2_fcts.plot_manifold(ax)
+    plt_data = m_t_s2.swapto_tupleoflist(data)
+    plt.plot(plt_data[1][:,0],plt_data[1][:,1],plt_data[1][:,2],'.', label='Demonstration')     # Original Data
+    plt_data = m_t_s2.swapto_tupleoflist(calinon.mean)
+    plt.plot(plt_data[1][:,0],plt_data[1][:,1],plt_data[1][:,2],'.', label='Mean')     # Original Data
+    label = 'Gaussian'
+    #for r, s in zip(calinon.mean, calinon.sigma):
+    #    s2_fcts.plot_gaussian(ax,r[1],s, showtangent=False,
+    #                     linealpha=0.3,color='yellow',label=label)
+    #    label=''
+    plt.legend(); plt.show()
 
     ax = plt.axes(projection ='3d')
     #print("Data", np.array(list(map(lambda x: x[1], data))))
-    ax.plot3D(trajectory[:,0],trajectory[:,1],trajectory[:,2], 'red')
+    ax.plot3D(trajectory[:,0],trajectory[:,1],trajectory[:,2], 'blue')
     demo = np.array(list(map(lambda x: x[1], data)))
-    ax.plot3D(demo[:,0],demo[:,1],demo[:,2], 'blue')
+    ax.scatter3D(demo[:,0],demo[:,1],demo[:,2], 'blue')
     ax.legend(['Manifold','Demonstration'])
     plt.show()
     plt.plot(trajectory)
