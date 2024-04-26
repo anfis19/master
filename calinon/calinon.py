@@ -1,8 +1,7 @@
 import numpy as np
-import open3d as o3d
 import sys
 import matplotlib.pyplot as plt
-from mpl_toolkits import mplot3d
+# from mpl_toolkits import mplot3d
 import control
 
 sys.path.append('/home/anton/master')
