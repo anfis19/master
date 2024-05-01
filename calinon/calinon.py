@@ -23,15 +23,22 @@ import swift
 m_e1 = rm.get_euclidean_manifold(1)
 m_e2 = rm.get_euclidean_manifold(2)
 m_e3 = rm.get_euclidean_manifold(3)
+
+m_s1 = rm.get_s1_manifold()
 m_s2 = rm.get_s2_manifold()
-
 m_s3  = rm.get_quaternion_manifold()
-m_e1xe3xq  = m_e1*m_e3*m_s3
-
+m_s3 = m_e1 * m_s3
 m1_pos = m_e3
 m1_ori = m_s3
 
+# For m2, we need a representation of S1 manifold.
+m2_pos = m_s1 * m_e2
+m2_pos_time = m_e1 * m2_pos
+
 m3_pos = m_s2 * m_e1
+m3_ori = m_s3
+m3_pos_time = m_e1 * m3_pos
+
 m_time = m_e1 * m_e3
 m_t_s2 = m_e1 * m_s2
 
@@ -64,15 +71,13 @@ class Calinon:
         #     self.sigma.append(g.margin(1).sigma)
         # # print("Sigma", self.sigma[0])
         # # print("Mu: ", self.mean[0])¨
-
-
         g = rs.Gaussian(manifold).mle(self.points)
         gmm = rs.GMM(manifold, 6)
-        gmm.kmeans(self.points)
+        gmm.kmeans(self.points, maxsteps=500)
         lik,avglik = gmm.fit(self.points, reg_lambda=1e-2, maxsteps = 500)
         results = []
         i_in  = 0 # Input manifold index
-        i_out = 1 # Output manifold index
+        i_out = [1,2] # Output manifold index
         x_in = self.points
         #x_in = self.points[0:200:10]
         # print(x_in)
@@ -81,16 +86,39 @@ class Calinon:
         #     self.sigma.append(r.sigma)
         #     mu = (x_in[idx][0], r.mu)
         #     self.mean.append(mu)
-        for idx, p in enumerate(list(self.points)):
-            results.append(gmm.gmr(p[i_in],i_in=i_in,i_out=i_out)[0])
-            self.sigma.append(results[idx].sigma)
-            print("Sigma", results[idx].sigma)
-            mu = (p[i_in], results[idx].mu)
-            self.mean.append(mu)
+        if manifold == m_time:
+            i_out = [1] # Output manifold index
+            for idx, p in enumerate(list(self.points)):
+                results.append(gmm.gmr(p[i_in],i_in=i_in,i_out=i_out)[0])
+                self.sigma.append(results[idx].sigma)
+                # print("Sigma", results[idx].sigma)
+                mu = (p[i_in], results[idx].mu)
+                self.mean.append(mu)
 
-    
+        if manifold == m3_pos_time:
+                i_out = [1,2] # Output manifold index
+                for idx, p in enumerate(list(self.points)):
+                    results.append(gmm.gmr(p[i_in],i_in=i_in,i_out=i_out)[0])
+                    # print(gmm.gmr(p[i_in],i_in=i_in,i_out=i_out)[0].sigma)
+                    self.sigma.append(results[idx].sigma)
+                    # print("Sigma", results[idx].sigma)
+                    mu = (p[i_in], results[idx].mu)
+                    self.mean.append(mu)
+                    # print(mu)
+                self.mean = M3toR3(self.mean)
+                # print(self.mean)
 
-
+        if manifold == m2_pos_time:
+                i_out = [1,2] # Output manifold index
+                for idx, p in enumerate(list(self.points)):
+                    results.append(gmm.gmr(p[i_in],i_in=i_in,i_out=i_out)[0])
+                    # print(gmm.gmr(p[i_in],i_in=i_in,i_out=i_out)[0].sigma)
+                    self.sigma.append(results[idx].sigma)
+                    # print("Sigma", results[idx].sigma)
+                    mu = (p[i_in], results[idx].mu)
+                    self.mean.append(mu)
+                self.mean = M2toR3(self.mean, axis='z')
+                # print(self.mean)
 
     def get_mean(self, demonstration, manifold, point):
         ''' Takes a list of points at a time step, and returns the mean on a specified manifold.
@@ -98,8 +126,8 @@ class Calinon:
         # print(demonstration)
         g = rs.Gaussian(manifold).mle(demonstration)
         mu = g.mu
-        print("Point: ", point)
-        print("Mu: ", mu)
+        # print("Point: ", point)
+        # print("Mu: ", mu)
         e = manifold.log(point, mu)
         Q = np.eye(3)
         e = e[1:].reshape(3,1)
@@ -135,45 +163,189 @@ class Calinon:
         Q = []
         for i in range(len(self.sigma)):
             tmp = np.array(self.sigma[i])
+            # print(tmp)
             tmp = tmp[0:dim,0:dim]
-            #copy upper half and insert into lower half
-            # upper = np.triu(tmp)
-            # tmp = upper + upper.transpose() - np.diag(np.diag(tmp))
+            # copy upper half and insert into lower half
+            upper = np.triu(tmp)
+            tmp = upper + upper.transpose() - np.diag(np.diag(tmp))
+            # print(tmp)
+
+            # tmp[abs(tmp)<1e-18] = 0
             # print(tmp)
             tmp = np.linalg.inv(tmp)
+            # tmp[tmp>1000] = 1000
             Z = np.zeros((dim,dim),dtype=int) # Create off-diagonal zeros array
+            # print(tmp)
+            # print("z", Z)
             tmp = np.asarray(np.bmat([[tmp, Z], [Z, tmp]]))
+            # print("Q", tmp)
             Q.append(tmp)
 
         Q = np.array(Q).round(5)
-
+        print(Q[0])
 
         self.D = []
         self.K = []
         self.u = []
         for i in range(len(Q)):
+            # print(Q[i])
             k_temp, S, E = control.lqr(A, B, Q[i], R)
             # self.K.append(k_temp[0:3,0:3] * np.identity(n=3))
             # self.D.append(k_temp[0:3,3:6] * np.identity(n=3))
             self.K.append(k_temp[0:dim,0:dim] * np.identity(n=dim))
             self.D.append(k_temp[0:dim,dim:2*dim] * np.identity(n=dim))
-            print("Mean",self.mean[i])
-            print("Point: ", self.points[i])
-            e = m_time.log(self.points[i], self.mean[i])
+            # print("Mean",self.mean[i])
+            # print("Point: ", self.points[i])
+            # e = m_time.log(self.points[i], self.mean[i])
             # Q = np.eye(3)
-            e = e[1:].reshape(dim,1)
+            # e = e[1:].reshape(dim,1)
             # e = e[0:dim]
-            self.u.append(-np.matmul(self.K[i],e))
+            # self.u.append(-np.matmul(self.K[i],e))
             # print("U: ", self.u[i])
         np.linalg.cholesky(self.K)
         np.linalg.cholesky(self.D)
 
 
+def R3toM3(data):
+    '''Convert euclidean R^3 list of data to the format of M3 manifold
+    Input: (t, point)
+    Output: (t, direction 3x1, radius 1x1)'''
+    output = []
+    for point in data:
+        t = point[0]
+        radius = np.linalg.norm(point[1])
+        direction = point[1]/radius
+        radius = np.linalg.norm(point[1]) + np.random.uniform(-0.01, 0.01)
+        # print(radius)
+        radius = np.array([radius])
+        new_point = [t, direction, radius]
+        output.append(tuple(new_point))
+    return output
 
         
+def M3toR3(data):
+    '''Convert M3 list of data to the format of R3
+    Input: (t, direction 3x1, radius 1x1)
+    Output: (t, point)
+    '''
+    output = []
+    for point in data:
+        point = np.array(point) 
+        t = point[0]
+        radius = point[-1][-1]
+        vector = point[1][0]*radius
+        new_point = [t, vector]
+        output.append(tuple(new_point))
+    return output
+        
+def R3toM2(data, axis='x'):
+    '''Converts to cylindrical coordinates, axis specifies which axis cylinder is around
+    '''
+    output = []
+    if axis == 'x':
+        for point in data:
+            t = point[0]
+            x = point[-1][0]
+            y = point[-1][1]
+            z = point[-1][2]
+            theta = np.arctan2(z, y)
+            radius = np.sqrt((pow(y,2)+pow(z,2)))
+            vector = np.array([x,radius])
+            new_point = [t, np.array([theta]), vector]
+            output.append(tuple(new_point))
+        return (output)
+    elif axis == 'y':
+        for point in data:
+            t = point[0]
+            x = point[-1][0]
+            y = point[-1][1]
+            z = point[-1][2]
+            theta = np.arctan2(z, x)
+            radius = np.sqrt((pow(x,2)+pow(z,2)))
+            vector = np.array([y,radius])
+            new_point = [t, np.array([theta]), vector]
+            output.append(tuple(new_point))
+        return (output)
+    elif axis == 'z':
+        for point in data:
+            t = point[0]
+            x = point[-1][0]
+            y = point[-1][1]
+            z = point[-1][2]
+            theta = np.arctan2(x, y)
+            radius = np.sqrt((pow(x,2)+pow(y,2)))
+            vector = np.array([z,radius])
+            new_point = [t, np.array([theta]), vector]
+            output.append(tuple(new_point))
+        return (output)
+    else:
+        "Print please provide axis x y or z"
 
-        
-        
+def M2toR3(data, axis='x'):
+    """Converts from S1 x R2 to R3, handling different S1 axis orientations.
+
+    Args:
+        data: (The angle on the S1 circle, (height, radius): The coordinates in the R2 plane.)
+        axis: The axis around which the S1 circle is oriented. 
+              Can be 'x', 'y', or 'z' (default is 'x').
+    Returns:
+        The corresponding (x, y, z) coordinates in R3 space.
+    """
+    output = []
+    norm = 0
+    if axis == 'x':
+        for point in data:
+            t = point[0]
+            theta = point[-1][0][0]
+            # print(theta)
+            x = point[-1][-1][0]
+            radius = point[-1][-1][1]
+            # print("point", point, " theta: ", theta, " x: ", x, " radius: ", radius)
+            # radius = np.sqrt(y**2 + z**2)  
+            new_y = radius * np.cos(theta)
+            new_z = radius * np.sin(theta)
+            new_point = [t, np.array([x, new_y, new_z])]
+            output.append(tuple(new_point))
+        return output
+
+    elif axis == 'y':
+        for point in data:
+            t = point[0]
+            theta = point[-1][0][0]
+            y = point[-1][-1][0]
+            radius = point[-1][-1][1]
+            print("theta: ", theta, " y ", y, " radius: ", radius)
+            # radius = np.sqrt(y**2 + z**2)  
+            new_x = radius * np.cos(theta)
+            new_z = radius * np.sin(theta)
+            new_point = [t, np.array([new_x, y, new_z])]
+            output.append(tuple(new_point))
+        return output
+
+    elif axis == 'z':
+        for idx, point in enumerate(data):
+            t = point[0]
+            theta = point[-1][0][0]
+            z = point[-1][-1][0]
+            radius = point[-1][-1][1]
+            # print("theta: ", theta, " z: ", z, " radius: ", radius)
+            # radius = np.sqrt(x**2 + y**2)
+            new_x = radius * np.sin(theta)
+            new_y = radius * np.cos(theta)
+            new_point = [t, np.array([new_x, new_y, z])]
+            if(idx == 0):
+                norm = np.linalg.norm(new_point[1])
+                output.append(tuple(new_point))
+            else:
+                new_norm = np.linalg.norm(new_point[1])
+                if(new_norm-norm < 0.001):
+                    norm = new_norm
+                    output.append(tuple(new_point))
+        return output
+
+    else:
+        raise ValueError("Invalid axis. Must be 'x', 'y', or 'z'")
+
    
 def main():
     startpts = np.array([0, 0, 0])
@@ -188,14 +360,33 @@ def main():
     line = (line, np.flip(line, 0), time.reshape(800,1))
     # print("Data", sorted(data, key=lambda x: x[0][0])[:10])
 
-    #print("S2 Time: ", m_s2.id_elem, " NdimT: ", m_t_s2.n_dimT, " NdimM; ", m_t_s2.n_dimM)
-    #print("M time: ", m_e3.id_elem, " NdimT: ", m_time.n_dimT, " NdimM; ", m_time.n_dimM)
+    print("S2 Time: ", m_t_s2.id_elem, " NdimT: ", m_t_s2.n_dimT, " NdimM; ", m_t_s2.n_dimM)
+    print("M3 time: ", m3_pos_time.id_elem, " NdimT: ", m3_pos_time.n_dimT, " NdimM; ", m_time.n_dimM)
+    print("M time: ", m_time.id_elem, " NdimT: ", m_time.n_dimT, " NdimM; ", m_time.n_dimM)
+    print("S3 time: ", m_s3.id_elem, " NdimT: ", m_s3.n_dimT, " NdimM; ", m_time.n_dimM)
 
-    g = rs.Gaussian(m_time).mle(data)
+    manifold = m_time
     calinon = Calinon(data)
-    calinon.create_gaussians(m_time)
-    # print(calinon.get_mean(points, m_time,data[50]))
+    calinon.create_gaussians(manifold)
     calinon.lqr_path()
+
+    m2_data = R3toM2(data, axis='z')
+    m3_data = R3toM3(data)
+    data = m3_data
+    manifold = m3_pos_time
+    # g = rs.Gaussian(manifold).mle(data)
+    calinon_m3 = Calinon(data)
+    calinon_m3.create_gaussians(manifold)
+    calinon_m3.lqr_path()
+
+    # data = m2_data
+    manifold = m2_pos_time
+    # g = rs.Gaussian(manifold).mle(data)
+    calinon_m2 = Calinon(m2_data)
+    calinon_m2.create_gaussians(manifold)
+    calinon_m2.lqr_path()
+
+
     # best_manifold = calinon.best_fit()
     # print(best_manifold)
 
@@ -227,6 +418,41 @@ def main():
         # if i == 0:
         #     print(compliant)
     trajectory = np.array(trajectory)
+
+    T = np.eye(4)
+    # T[:3, :3] = angvec2r(np.linalg.norm(start[3:]), start[3:])
+    T[:3, 3] = calinon_m3.mean[0][1]
+    T[3, :] = [0, 0, 0, 1]
+
+    trajectory_m3 = []
+    for i in range(len(calinon_m3.mean)):
+        T[:3, 3] = calinon_m3.mean[i][1]
+        damp = calinon_m3.D[i]
+        stiff = calinon_m3.K[i]
+        wrench = np.zeros(shape=(6,1))
+        #wrench[0:3] = calinon.u[i]
+        rotatedWrench = wrench
+        compliant = adm.controller(SE3(T), rotatedWrench, mass=mass, damp=damp, stiff=stiff)
+        trajectory_m3.append(compliant[:3, 3])
+        # if i == 0:
+        #     print(compliant)
+    trajectory_m3 = np.array(trajectory_m3)
+
+    trajectory_m2 = []
+    for i in range(len(calinon_m2.mean)):
+        print(calinon_m2.mean[i])
+        T[:3, 3] = calinon_m2.mean[i][1]
+        damp = calinon_m2.D[i]
+        stiff = calinon_m2.K[i]
+        wrench = np.zeros(shape=(6,1))
+        #wrench[0:3] = calinon.u[i]
+        rotatedWrench = wrench
+        compliant = adm.controller(SE3(T), rotatedWrench, mass=mass, damp=damp, stiff=stiff)
+        trajectory_m2.append(compliant[:3, 3])
+        # if i == 0:
+        #     print(compliant)
+    trajectory_m2 = np.array(trajectory_m2)
+
     # trajectory = np.array(calinon.u)
     #fig = plt.figure()
 
@@ -248,9 +474,11 @@ def main():
     ax = plt.axes(projection ='3d')
     #print("Data", np.array(list(map(lambda x: x[1], data))))
     ax.plot3D(trajectory[:,0],trajectory[:,1],trajectory[:,2], 'blue')
+    ax.plot3D(trajectory_m2[:,0],trajectory_m2[:,1],trajectory_m2[:,2], 'black')
+    ax.plot3D(trajectory_m3[:,0],trajectory_m3[:,1],trajectory_m3[:,2], 'green')
     demo = np.array(list(map(lambda x: x[1], data)))
     ax.scatter3D(demo[:,0],demo[:,1],demo[:,2], 'blue')
-    ax.legend(['Manifold','Demonstration'])
+    ax.legend(['M1','M2', 'M3', 'Demonstration'])
     plt.show()
     plt.plot(trajectory)
     plt.legend(['x','y','z'])

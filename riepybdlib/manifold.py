@@ -505,6 +505,17 @@ def get_s2_manifold(name='S2', fnptoman=None, fmantonp=None):
                  exp=s2_exp, log=s2_log# Add optional non-base maps that to provide more efficient computation
                  )
 
+def get_s1_manifold(name='S1', fnptoman=None, fmantonp=None):
+    return Manifold(n_dimM=1, n_dimT=1,  # Dimensions of the manifold and tangent space
+                    exp_e=s1_exp_e, log_e=s1_log_e, id_elem=np.zeros(1),  # S1 identity is angle 0
+                    name=name, 
+                    f_nptoman= fnptoman,
+                    f_mantonp= fmantonp,
+                    f_action=s1_action,
+                    f_parallel_transport=s1_parallel_transport,
+                    exp=s1_exp, log=s1_log
+                    ) 
+
 
 def SO2_parallelTransp(xtan, a, b, t):
     return xtan

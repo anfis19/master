@@ -705,7 +705,7 @@ class GMM:
             for i, gauss in enumerate(self.gaussians):
                 # Only compute conditioning for states that have a significant influence
                 # Do this to prevent convergence errors
-                if h[n,i]>1e-5:
+                if h[n,i]>1e-3:
                     # weight is larger than 1e-3
                     gc_list.append(gauss.condition(point, i_in=i_in, i_out=i_out))
                 else:
