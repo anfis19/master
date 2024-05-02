@@ -346,51 +346,10 @@ def M2toR3(data, axis='x'):
     else:
         raise ValueError("Invalid axis. Must be 'x', 'y', or 'z'")
 
-   
-def main():
-    startpts = np.array([0, 0, 0])
-    endpts = np.array([12, 3, 8])
-    dems = pbddata.get_letter_dataS2(letter='S',n_samples=4,use_time=True)
-    data = [point for dem in dems for point in dem]
-    data = sorted(data, key=lambda x: x[0][0])
-    print(data[0])
-    line = np.vstack(pbddata.get_letter_dataS2(letter='S',n_samples=4,use_time=False))
-    time = np.linspace(0,1,800)
-    # print("Line shape: ", line.shape)
-    line = (line, np.flip(line, 0), time.reshape(800,1))
-    # print("Data", sorted(data, key=lambda x: x[0][0])[:10])
-
-    print("S2 Time: ", m_t_s2.id_elem, " NdimT: ", m_t_s2.n_dimT, " NdimM; ", m_t_s2.n_dimM)
-    print("M3 time: ", m3_pos_time.id_elem, " NdimT: ", m3_pos_time.n_dimT, " NdimM; ", m_time.n_dimM)
-    print("M time: ", m_time.id_elem, " NdimT: ", m_time.n_dimT, " NdimM; ", m_time.n_dimM)
-    print("S3 time: ", m_s3.id_elem, " NdimT: ", m_s3.n_dimT, " NdimM; ", m_time.n_dimM)
-
-    manifold = m_time
-    calinon = Calinon(data)
-    calinon.create_gaussians(manifold)
-    calinon.lqr_path()
-
-    m2_data = R3toM2(data, axis='z')
-    m3_data = R3toM3(data)
-    data = m3_data
-    manifold = m3_pos_time
-    # g = rs.Gaussian(manifold).mle(data)
-    calinon_m3 = Calinon(data)
-    calinon_m3.create_gaussians(manifold)
-    calinon_m3.lqr_path()
-
-    # data = m2_data
-    manifold = m2_pos_time
-    # g = rs.Gaussian(manifold).mle(data)
-    calinon_m2 = Calinon(m2_data)
-    calinon_m2.create_gaussians(manifold)
-    calinon_m2.lqr_path()
-
-
-    # best_manifold = calinon.best_fit()
-    # print(best_manifold)
-
-    # -------------------- Admittance control ------------------------
+def generateTrajectory(gmrObject):
+    '''Generates a trajectory using an admittance controller.
+    Needs a calinon object where GMR has been done.
+    '''
     freq = 500.0
 
     mass = np.diag([1, 1, 1])
@@ -402,59 +361,62 @@ def main():
 
     T = np.eye(4)
     # T[:3, :3] = angvec2r(np.linalg.norm(start[3:]), start[3:])
-    T[:3, 3] = calinon.mean[0][1]
+    T[:3, 3] = gmrObject.mean[0][1]
     T[3, :] = [0, 0, 0, 1]
 
     trajectory = []
-    for i in range(len(calinon.mean)):
-        T[:3, 3] = calinon.mean[i][1]
-        damp = calinon.D[i]
-        stiff = calinon.K[i]
+    for i in range(len(gmrObject.mean)):
+        T[:3, 3] = gmrObject.mean[i][1]
+        damp = gmrObject.D[i]
+        stiff = gmrObject.K[i]
         wrench = np.zeros(shape=(6,1))
-        #wrench[0:3] = calinon.u[i]
+        #wrench[0:3] = gmrObject.u[i]
         rotatedWrench = wrench
         compliant = adm.controller(SE3(T), rotatedWrench, mass=mass, damp=damp, stiff=stiff)
         trajectory.append(compliant[:3, 3])
         # if i == 0:
         #     print(compliant)
-    trajectory = np.array(trajectory)
+    return np.array(trajectory)
 
-    T = np.eye(4)
-    # T[:3, :3] = angvec2r(np.linalg.norm(start[3:]), start[3:])
-    T[:3, 3] = calinon_m3.mean[0][1]
-    T[3, :] = [0, 0, 0, 1]
+   
+def main():
+    dems = pbddata.get_letter_dataS2(letter='S',n_samples=4,use_time=True)
+    data = [point for dem in dems for point in dem]
+    data = sorted(data, key=lambda x: x[0][0])
 
-    trajectory_m3 = []
-    for i in range(len(calinon_m3.mean)):
-        T[:3, 3] = calinon_m3.mean[i][1]
-        damp = calinon_m3.D[i]
-        stiff = calinon_m3.K[i]
-        wrench = np.zeros(shape=(6,1))
-        #wrench[0:3] = calinon.u[i]
-        rotatedWrench = wrench
-        compliant = adm.controller(SE3(T), rotatedWrench, mass=mass, damp=damp, stiff=stiff)
-        trajectory_m3.append(compliant[:3, 3])
-        # if i == 0:
-        #     print(compliant)
-    trajectory_m3 = np.array(trajectory_m3)
 
-    trajectory_m2 = []
-    for i in range(len(calinon_m2.mean)):
-        print(calinon_m2.mean[i])
-        T[:3, 3] = calinon_m2.mean[i][1]
-        damp = calinon_m2.D[i]
-        stiff = calinon_m2.K[i]
-        wrench = np.zeros(shape=(6,1))
-        #wrench[0:3] = calinon.u[i]
-        rotatedWrench = wrench
-        compliant = adm.controller(SE3(T), rotatedWrench, mass=mass, damp=damp, stiff=stiff)
-        trajectory_m2.append(compliant[:3, 3])
-        # if i == 0:
-        #     print(compliant)
-    trajectory_m2 = np.array(trajectory_m2)
+    line = np.vstack(pbddata.get_letter_dataS2(letter='S',n_samples=4,use_time=False))
+    time = np.linspace(0,1,800)
+    # print("Line shape: ", line.shape)
+    line = (line, np.flip(line, 0), time.reshape(800,1))
+    # print("Data", sorted(data, key=lambda x: x[0][0])[:10])
 
-    # trajectory = np.array(calinon.u)
-    #fig = plt.figure()
+    # -------------------- GMM -> GMR -> LQR ------------------------
+    manifold = m_time
+    calinon_m1 = Calinon(data)
+    calinon_m1.create_gaussians(manifold)
+    calinon_m1.lqr_path()
+
+    m2_data = R3toM2(data, axis='z')
+    manifold = m2_pos_time
+    calinon_m2 = Calinon(m2_data)
+    calinon_m2.create_gaussians(manifold)
+    calinon_m2.lqr_path()
+
+    m3_data = R3toM3(data)
+    manifold = m3_pos_time
+    calinon_m3 = Calinon(m3_data)
+    calinon_m3.create_gaussians(manifold)
+    calinon_m3.lqr_path()
+
+    # best_manifold = calinon.best_fit()
+    # print(best_manifold)
+
+    # -------------------- Admittance control ------------------------
+    trajectory_m1 = generateTrajectory(calinon_m1)
+    trajectory_m2 = generateTrajectory(calinon_m2)
+    trajectory_m3 = generateTrajectory(calinon_m3)
+
 
     #syntax for 3-D projection
     plt.figure(figsize=(5,5) )
@@ -462,7 +424,7 @@ def main():
     s2_fcts.plot_manifold(ax)
     plt_data = m_t_s2.swapto_tupleoflist(data)
     plt.plot(plt_data[1][:,0],plt_data[1][:,1],plt_data[1][:,2],'.', label='Demonstration')     # Original Data
-    plt_data = m_t_s2.swapto_tupleoflist(calinon.mean)
+    plt_data = m_t_s2.swapto_tupleoflist(calinon_m1.mean)
     plt.plot(plt_data[1][:,0],plt_data[1][:,1],plt_data[1][:,2],'.', label='Mean')     # Original Data
     label = 'Gaussian'
     #for r, s in zip(calinon.mean, calinon.sigma):
@@ -472,8 +434,8 @@ def main():
     plt.legend(); plt.show()
 
     ax = plt.axes(projection ='3d')
-    #print("Data", np.array(list(map(lambda x: x[1], data))))
-    ax.plot3D(trajectory[:,0],trajectory[:,1],trajectory[:,2], 'blue')
+
+    ax.plot3D(trajectory_m1[:,0],trajectory_m1[:,1],trajectory_m1[:,2], 'blue')
     ax.plot3D(trajectory_m2[:,0],trajectory_m2[:,1],trajectory_m2[:,2], 'black')
     ax.plot3D(trajectory_m3[:,0],trajectory_m3[:,1],trajectory_m3[:,2], 'green')
     demo = np.array(list(map(lambda x: x[1], data)))
@@ -486,6 +448,7 @@ def main():
     start = trajectory[0]
     start = SE3.Trans(start)
     #print(robot.ik_LM(start))
+    robot = rtb.models.UR5()
     robot.q = robot.ik_LM(start)[0]#robot.ik_LM(start)
 
     Tep = SE3.Trans(0.6, -0.3, 0.1) * SE3.OA([0, 1, 0], [0, 0, -1])
@@ -494,24 +457,7 @@ def main():
     q_pickup = sol[0]
     qt = rtb.jtraj(robot.qr, q_pickup, 50)
     robot.plot(qt.q, backend='pyplot')
-    dt = 0.05
-    qt_test = []
-    env = swift.Swift()
-    #env.launch(realtime=True)
-    # arrived = False
-    # env.add(robot)
-    # for i in range(len(trajectory)-1):
-    #     arrived = False
-    # while not arrived:
-    #     current_pos = robot.fkine(robot.q)
-    #     v, arrived = rtb.p_servo(current_pos, SE3.Trans(trajectory[-1]), 1)
-    #     print(np.linalg.pinv(robot.jacobe(robot.q)) @ v)
-    #     robot.qd = np.linalg.pinv(robot.jacobe(robot.q)) @ v
-    #     env.step(dt)
-    #     qt_test.append(robot.q)
-    # print(robot.qd)
-    # print(np.array(qt_test))
-    # robot.plot(np.array(qt_test), backend='pyplot')
+
 
 
 
