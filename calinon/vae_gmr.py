@@ -37,12 +37,18 @@ class VAEgmr():
         sigma0 = np.eye(3)
 
         self.gaussians = []
-
+        for i in range(n_components):
+            self.gaussians.append( Gaussian(model,mu0,sigma0))
 
         self.model = model
         self.demo = demonstrations
         self.n_components = n_components
         self.priors = np.ones(n_components)/n_components
+        
+        if base is None:
+            self.base = np.zeros(2)
+        else:
+            self.base = base
         
 
     def log(self, p0, p1, discrete_model=None):
@@ -85,13 +91,41 @@ class VAEgmr():
             lik.append(gauss.prob(data)*self.priors[i])
         lik = np.vstack(lik)
         return lik
-        pass
 
-    def predict():
-        pass
 
-    def fit():
-        pass
+    def predict(self, data):
+        lik = self.expectation(data)
+        return np.argmax(lik, axis=0)
+
+    def fit(self, data, convthres=1e-5, maxsteps=100, minsteps=5, reg_lambda=1e-3,
+            reg_type=RegularizationType.SHRINKAGE):
+        n_data = len(data)
+
+        prvlik = 0
+        avg_loglik = []
+        for st in range(maxsteps):
+            lik = self.expectation(data)
+            gamma0 = (lik/(lik.sum(axis=0)+1e-200))
+            gamma1 = (gamma0.T/gamma0.sum(axis=1)).T
+
+            # Maximization
+            for i, gauss in enumerate(self.gaussians):
+                gauss.mle(data, gamma1[i,], reg_lambda, reg_type)
+            # Update priors
+            self.priors = gamma0.sum(axis=1)
+            self.priors = self.priors/self.priors.sum() # Normalize
+
+            avglik = -np.log(lik.sum(0)+1e-200).mean()
+            if abs(avglik - prvlik) < convthres and st > minsteps:
+                print('EM converged in %i steps'%(st))
+                break
+            else:
+                avg_loglik.append(avglik)
+                prvlik = avglik
+        if (st+1) >= maxsteps:
+             print('EM did not converge in {0} steps'.format(maxsteps))
+        
+        return lik, avg_loglik
 
     def kmeans():
         pass
@@ -147,8 +181,6 @@ class Gaussian():
         probs =  np.exp( -0.5*dist )/reg 
 
         return probs
-    
-    def margin(self):
     
     def mle(self, x, h=None, reg_lambda=1e-3, reg_type=RegularizationType.SHRINKAGE):
         self.mu = self.__empirical_mean(x,h)
@@ -218,5 +250,11 @@ class Gaussian():
             raise ValueError('Unknown regularization type for covariance regularization')
 
     def condition(self, val):
+        pass
+
+    def parallel_transport(self, h):
+        '''
+        Do parallel transport on the VAE.
+        '''
 
 
