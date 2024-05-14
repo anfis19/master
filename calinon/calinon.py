@@ -71,14 +71,15 @@ class Calinon:
         #     self.sigma.append(g.margin(1).sigma)
         # # print("Sigma", self.sigma[0])
         # # print("Mu: ", self.mean[0])¨
-        g = rs.Gaussian(manifold).mle(self.points)
-        gmm = rs.GMM(manifold, 6)
+        # g = rs.Gaussian(manifold).mle(self.points)
+        gmm = rs.GMM(manifold, 10)
         gmm.kmeans(self.points, maxsteps=500)
         lik,avglik = gmm.fit(self.points, reg_lambda=1e-2, maxsteps = 500)
         results = []
         i_in  = 0 # Input manifold index
         i_out = [1,2] # Output manifold index
         x_in = self.points
+        
         #x_in = self.points[0:200:10]
         # print(x_in)
         # results = g.condition(x_in,i_in=i_in,i_out=i_out)
@@ -117,7 +118,7 @@ class Calinon:
                     # print("Sigma", results[idx].sigma)
                     mu = (p[i_in], results[idx].mu)
                     self.mean.append(mu)
-                self.mean = M2toR3(self.mean, axis='z')
+                self.mean = M2toR3(self.mean, axis='x')
                 # print(self.mean)
 
     def get_mean(self, demonstration, manifold, point):
@@ -238,113 +239,195 @@ def M3toR3(data):
         output.append(tuple(new_point))
     return output
         
-def R3toM2(data, axis='x'):
-    '''Converts to cylindrical coordinates, axis specifies which axis cylinder is around
-    '''
-    output = []
-    if axis == 'x':
-        for point in data:
-            t = point[0]
-            x = point[-1][0]
-            y = point[-1][1]
-            z = point[-1][2]
-            theta = np.arctan2(z, y)
-            radius = np.sqrt((pow(y,2)+pow(z,2)))
-            vector = np.array([x,radius])
-            new_point = [t, np.array([theta]), vector]
-            output.append(tuple(new_point))
-        return (output)
-    elif axis == 'y':
-        for point in data:
-            t = point[0]
-            x = point[-1][0]
-            y = point[-1][1]
-            z = point[-1][2]
-            theta = np.arctan2(z, x)
-            radius = np.sqrt((pow(x,2)+pow(z,2)))
-            vector = np.array([y,radius])
-            new_point = [t, np.array([theta]), vector]
-            output.append(tuple(new_point))
-        return (output)
-    elif axis == 'z':
-        for point in data:
-            t = point[0]
-            x = point[-1][0]
-            y = point[-1][1]
-            z = point[-1][2]
-            theta = np.arctan2(x, y)
-            radius = np.sqrt((pow(x,2)+pow(y,2)))
-            vector = np.array([z,radius])
-            new_point = [t, np.array([theta]), vector]
-            output.append(tuple(new_point))
-        return (output)
-    else:
-        "Print please provide axis x y or z"
+# def R3toM2(data, axis='x'):
+#     '''Converts to cylindrical coordinates, axis specifies which axis cylinder is around
+#     '''
+#     output = []
+#     if axis == 'x':
+#         for point in data:
+#             t = point[0]
+#             x = point[-1][0]
+#             y = point[-1][1]
+#             z = point[-1][2]
+#             theta = np.arctan2(z, y)
+#             radius = np.sqrt((pow(y,2)+pow(z,2)))
+#             vector = np.array([x,radius])
+#             new_point = [t, np.array([theta]), vector]
+#             output.append(tuple(new_point))
+#         return (output)
+#     elif axis == 'y':
+#         for point in data:
+#             t = point[0]
+#             x = point[-1][0]
+#             y = point[-1][1]
+#             z = point[-1][2]
+#             theta = np.arctan2(z, x)
+#             radius = np.sqrt((pow(x,2)+pow(z,2)))
+#             vector = np.array([y,radius])
+#             new_point = [t, np.array([theta]), vector]
+#             output.append(tuple(new_point))
+#         return (output)
+#     elif axis == 'z':
+#         for point in data:
+#             t = point[0]
+#             x = point[-1][0]
+#             y = point[-1][1]
+#             z = point[-1][2]
+#             theta = np.arctan2(x, y)
+#             radius = np.sqrt((pow(x,2)+pow(y,2)))
+#             vector = np.array([z,radius])
+#             print(theta)
+#             new_point = [t, np.array([theta]), vector]
+#             output.append(tuple(new_point))
+#         return (output)
+#     else:
+#         "Print please provide axis x y or z"
 
-def M2toR3(data, axis='x'):
-    """Converts from S1 x R2 to R3, handling different S1 axis orientations.
+def R3toM2(data, axis='z'):
+    """
+    Converts time-series data with Cartesian coordinates (t, x, y, z) to cylindrical coordinates (t, rho, phi, z).
 
     Args:
-        data: (The angle on the S1 circle, (height, radius): The coordinates in the R2 plane.)
-        axis: The axis around which the S1 circle is oriented. 
-              Can be 'x', 'y', or 'z' (default is 'x').
+        data: A list of tuples, each containing:
+            - A NumPy array of shape (1,) representing the time point.
+            - A NumPy array of shape (3,) representing the Cartesian coordinates (x, y, z).
+        axis: The axis of rotation ('x', 'y', or 'z'). Default is 'z'.
+
     Returns:
-        The corresponding (x, y, z) coordinates in R3 space.
+        A list of tuples, each containing:
+            - The original time point (NumPy array).
+            - A NumPy array of shape (3,) representing the cylindrical coordinates (rho, phi, z).
     """
-    output = []
-    norm = 0
-    if axis == 'x':
-        for point in data:
-            t = point[0]
-            theta = point[-1][0][0]
-            # print(theta)
-            x = point[-1][-1][0]
-            radius = point[-1][-1][1]
-            # print("point", point, " theta: ", theta, " x: ", x, " radius: ", radius)
-            # radius = np.sqrt(y**2 + z**2)  
-            new_y = radius * np.cos(theta)
-            new_z = radius * np.sin(theta)
-            new_point = [t, np.array([x, new_y, new_z])]
-            output.append(tuple(new_point))
-        return output
+    
+    cylindrical_data = []
 
-    elif axis == 'y':
-        for point in data:
-            t = point[0]
-            theta = point[-1][0][0]
-            y = point[-1][-1][0]
-            radius = point[-1][-1][1]
-            print("theta: ", theta, " y ", y, " radius: ", radius)
-            # radius = np.sqrt(y**2 + z**2)  
-            new_x = radius * np.cos(theta)
-            new_z = radius * np.sin(theta)
-            new_point = [t, np.array([new_x, y, new_z])]
-            output.append(tuple(new_point))
-        return output
+    for t, xyz in data:
+        if axis == 'z':
+            x, y, z = xyz[0], xyz[1], xyz[2]
+        elif axis == 'x':
+            z, y, x = xyz[0], xyz[1], xyz[2]  # Swap axes
+        elif axis == 'y':
+            x, z, y = xyz[0], xyz[1], xyz[2]  # Swap axes
+        else:
+            raise ValueError("Invalid axis. Choose 'x', 'y', or 'z'.")
 
-    elif axis == 'z':
-        for idx, point in enumerate(data):
-            t = point[0]
-            theta = point[-1][0][0]
-            z = point[-1][-1][0]
-            radius = point[-1][-1][1]
-            # print("theta: ", theta, " z: ", z, " radius: ", radius)
-            # radius = np.sqrt(x**2 + y**2)
-            new_x = radius * np.sin(theta)
-            new_y = radius * np.cos(theta)
-            new_point = [t, np.array([new_x, new_y, z])]
-            if(idx == 0):
-                norm = np.linalg.norm(new_point[1])
-                output.append(tuple(new_point))
-            else:
-                new_norm = np.linalg.norm(new_point[1])
-                if(new_norm-norm < 0.001):
-                    norm = new_norm
-                    output.append(tuple(new_point))
-        return output
+        rho = np.sqrt(x**2 + y**2)
+        phi = np.arctan2(y, x)
 
-    else:
-        raise ValueError("Invalid axis. Must be 'x', 'y', or 'z'")
+        if axis == 'z':
+            cylindrical_coords = np.array([phi, z])
+        elif axis == 'x':
+            cylindrical_coords = np.array([phi, z])
+        else:  # axis == 'y'
+            cylindrical_coords = np.array([phi, z])
+
+        cylindrical_data.append((t, rho, cylindrical_coords))  # Output format: (t, rho, [phi, z/x/y])print(cylindrical_data)
+    return cylindrical_data
+
+# def M2toR3(data, axis='x'):
+#     """Converts from S1 x R2 to R3, handling different S1 axis orientations.
+
+#     Args:
+#         data: (The angle on the S1 circle, (height, radius): The coordinates in the R2 plane.)
+#         axis: The axis around which the S1 circle is oriented. 
+#               Can be 'x', 'y', or 'z' (default is 'x').
+#     Returns:
+#         The corresponding (x, y, z) coordinates in R3 space.
+#     """
+#     output = []
+#     norm = 0
+#     if axis == 'x':
+#         for point in data:
+#             t = point[0]
+#             theta = point[-1].mean()
+#             # print(theta)
+#             x = point[-1][0]
+#             radius = point[-1][1]
+#             # print("point", point, " theta: ", theta, " x: ", x, " radius: ", radius)
+#             # radius = np.sqrt(y**2 + z**2)  
+#             new_y = radius * np.cos(theta)
+#             new_z = radius * np.sin(theta)
+#             new_point = [t, np.array([x, new_y, new_z])]
+#             output.append(tuple(new_point))
+#         return output
+
+#     elif axis == 'y':
+#         for point in data:
+#             t = point[0]
+#             theta = point[-1][0][0]
+#             y = point[-1][-1][0]
+#             radius = point[-1][-1][1]
+#             print("theta: ", theta, " y ", y, " radius: ", radius)
+#             # radius = np.sqrt(y**2 + z**2)  
+#             new_x = radius * np.cos(theta)
+#             new_z = radius * np.sin(theta)
+#             new_point = [t, np.array([new_x, y, new_z])]
+#             output.append(tuple(new_point))
+#         return output
+
+#     elif axis == 'z':
+#         for idx, point in enumerate(data):
+#             t = point[0]
+#             theta = point[-1][0]
+#             z = point[-1][0]
+#             radius = point[-1][1]
+#             # print("theta: ", theta, " z: ", z, " radius: ", radius)
+#             # radius = np.sqrt(x**2 + y**2)
+#             new_x = radius * np.sin(theta)
+#             new_y = radius * np.cos(theta)
+#             new_point = [t, np.array([new_x, new_y, z])]
+#             if(idx == 0):
+#                 norm = np.linalg.norm(new_point[1])
+#                 output.append(tuple(new_point))
+#             else:
+#                 new_norm = np.linalg.norm(new_point[1])
+#                 if(new_norm-norm < 0.001):
+#                     norm = new_norm
+#                     output.append(tuple(new_point))
+#         return output
+
+#     else:
+#         raise ValueError("Invalid axis. Must be 'x', 'y', or 'z'")
+def M2toR3(cylindrical_data, axis='z'):
+    """
+    Converts time-series data with cylindrical coordinates (t, rho, [phi, z]) to Cartesian coordinates (t, x, y, z).
+
+    Args:
+        cylindrical_data: A list of tuples, each containing:
+            - A NumPy array of shape (1,) representing the time point.
+            - The radial distance rho (float).
+            - A NumPy array of shape (2,) representing [phi, z] (or the appropriate coordinates depending on the axis).
+        axis: The axis of rotation ('x', 'y', or 'z'). Default is 'z'.
+
+    Returns:
+        A list of tuples, each containing:
+            - The original time point (NumPy array).
+            - A NumPy array of shape (3,) representing the Cartesian coordinates (x, y, z).
+    """
+    
+    cartesian_data = []
+
+    for t, coords in cylindrical_data:
+        rho, phi, z_or_x_or_y = coords[0], coords[1][0], coords[1][1]
+
+        if axis == 'z':
+            x = rho * np.cos(phi)
+            y = rho * np.sin(phi)
+            z = z_or_x_or_y
+        elif axis == 'x':
+            z = rho * np.cos(phi)
+            y = rho * np.sin(phi)
+            x = z_or_x_or_y
+        elif axis == 'y':
+            x = rho * np.cos(phi)
+            z = rho * np.sin(phi)
+            y = z_or_x_or_y
+        else:
+            raise ValueError("Invalid axis. Choose 'x', 'y', or 'z'.")
+
+        cartesian_data.append((t, np.array([x, y, z])))
+
+    return cartesian_data
 
 def generateTrajectory(gmrObject):
     '''Generates a trajectory using an admittance controller.
@@ -378,6 +461,63 @@ def generateTrajectory(gmrObject):
         #     print(compliant)
     return np.array(trajectory)
 
+def plot_covariance_circle_in_3d(mean, cov, ax, confidence=0.95, num_points=100):
+    """
+    Plots a circle (or ellipse) representing the uncertainty in 3D data based on mean and covariance.
+
+    Args:
+        mean: A NumPy array of shape (3,) representing the mean.
+        cov: The covariance matrix (3x3 NumPy array).
+        ax: The Matplotlib 3D axis to plot on.
+        confidence: The confidence level (e.g., 0.95 for 95% confidence).
+        num_points: The number of points to use for drawing the circle/ellipse.
+    """
+
+    # Find and sort eigenvalues and eigenvectors
+    eigvals, eigvecs = np.linalg.eig(cov)
+    order = eigvals.argsort()[::-1]
+    eigvals = eigvals[order]
+    eigvecs = eigvecs[:, order]
+
+    # Calculate radii based on confidence level
+    chi_sqr_val = np.sqrt(np.percentile(np.random.chisquare(3, num_points), 100 * confidence))
+    radii = np.sqrt(eigvals) * chi_sqr_val
+
+    # Generate points on a unit circle in the 2D subspace defined by the first two eigenvectors
+    theta = np.linspace(0, 2 * np.pi, num_points)
+    x = radii[1] * np.cos(theta)
+    y = radii[0] * np.sin(theta)
+    z = np.zeros(num_points)  # Start in the 2D plane 
+
+    # Transform points to 3D
+    points = np.vstack([x, y, z])
+    points_3d = np.dot(eigvecs, points) + mean[:, np.newaxis]  
+
+    # Plot the circle/ellipse
+    ax.plot(points_3d[0, :], points_3d[1, :], points_3d[2, :])
+    ax.scatter(mean[0], mean[1], mean[2], color='red', marker='o')  # Mark the center
+
+def plot_covariance_snake(means, covs, confidence=0.95, num_points=100):
+    """
+    Plots covariance ellipses/circles resembling a snake around a series of means.
+
+    Args:
+        means: A list of NumPy arrays, each of shape (3,) representing the mean points.
+        covs: A list of 3x3 NumPy arrays representing the covariance matrices for each point.
+        confidence: The confidence level (e.g., 0.95 for 95% confidence).
+        num_points: The number of points to use for drawing the circles/ellipses.
+    """
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    points = np.array(means)
+
+    ax.plot(points[:, 0], points[:, 1], points[:, 2], color="blue")  # Plot the line connecting means
+    
+    for mean, cov in zip(means, covs):
+        plot_covariance_circle_in_3d(mean, cov, ax, confidence, num_points)
+
+    plt.show()
    
 def main():
     dems = pbddata.get_letter_dataS2(letter='S',n_samples=4,use_time=True)
@@ -391,13 +531,15 @@ def main():
     line = (line, np.flip(line, 0), time.reshape(800,1))
     # print("Data", sorted(data, key=lambda x: x[0][0])[:10])
 
+
+
     # -------------------- GMM -> GMR -> LQR ------------------------
     manifold = m_time
     calinon_m1 = Calinon(data)
     calinon_m1.create_gaussians(manifold)
     calinon_m1.lqr_path()
 
-    m2_data = R3toM2(data, axis='z')
+    m2_data = R3toM2(data, axis='x')
     manifold = m2_pos_time
     calinon_m2 = Calinon(m2_data)
     calinon_m2.create_gaussians(manifold)
@@ -438,9 +580,14 @@ def main():
     ax.plot3D(trajectory_m1[:,0],trajectory_m1[:,1],trajectory_m1[:,2], 'blue')
     ax.plot3D(trajectory_m2[:,0],trajectory_m2[:,1],trajectory_m2[:,2], 'black')
     ax.plot3D(trajectory_m3[:,0],trajectory_m3[:,1],trajectory_m3[:,2], 'green')
+    # plot_covariance_snake(trajectory_m1, calinon_m1.sigma)
+    # for i in range(0, len(calinon_m1.mean), 20):
+    #     # print("Mean: ", mean[1])
+    #     # print("Sigma: ", sigma)
+    #     plot_covariance_circle_in_3d(calinon_m1.mean[i][1], calinon_m1.sigma[i], ax)
     demo = np.array(list(map(lambda x: x[1], data)))
     ax.scatter3D(demo[:,0],demo[:,1],demo[:,2], 'blue')
-    ax.legend(['M1','M2', 'M3', 'Demonstration'])
+    ax.legend(['M1','M2', 'M3', 'Demonstration', 'Demonstrstaion after m2'])
     plt.show()
     plt.plot(trajectory)
     plt.legend(['x','y','z'])

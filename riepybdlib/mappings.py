@@ -413,7 +413,6 @@ def s1_action(x, g, h):
 def s1_exp_e(g_tan, reg=1e-6):
     """Maps tangent vectors at the origin to points on the circle"""
     if g_tan.ndim == 2:
-        # Batch operation
         return (g_tan + reg) % (2 * np.pi)  # Regularization within the circular domain
     else: 
         # Single mode
@@ -423,19 +422,29 @@ def s1_log_e(g, reg=1e-10):
     """Maps points on the circle to the tangent space at the origin"""
     if g.ndim == 2:
         # Batch
-        return (g + np.pi - reg) % (2 * np.pi) - np.pi  # Back to [-pi, pi] range
+        return ((g + np.pi - reg) % (2 * np.pi)) - np.pi  # Back to [-pi, pi] range
     else:
         # Single
         return (g + np.pi - reg) % (2 * np.pi) - np.pi
 
 def s1_exp(x, g, reg=1e-10):
-    return s1_exp_e(x, reg) + g 
+    # print(g)
+    return (s1_exp_e(x, reg) + g ) % (2*np.pi)
+    # g = g.mean()
+    # vec_x = np.cos(x)
+    # vec_y = np.sin(x)
+    # vec = np.array([vec_x, vec_y])
+    # orthogonal = np.array([-vec_y, vec_x])*g
+    # point_on_circle = np.add(vec, orthogonal)/np.linalg.norm(np.add(vec, orthogonal))
+    # angle = np.arctan2(point_on_circle[1], point_on_circle[0])
+    # return angle
 
 def s1_log(x, g, reg=1e-10):
     return s1_log_e(x - g, reg)
 
 def s1_parallel_transport(Xg, g, h, t=1):
     """Parallel transport of vectors in X from h to g*t"""
+    return Xg % (2*np.pi)
     ht = s1_action(0, g, t * s1_log(h, g))  # Current position on circle
     return Xg + s1_log(ht, g)  # Simple addition in tangent space
 

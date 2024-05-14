@@ -152,13 +152,15 @@ class Gaussian(object):
         h   : optional list of weights, if not specified weights we be taken equal
         '''
         mu = self.mu
+        # print(mu)
         diff =1.0
         it = 0;
+        # print("New: ")
         while (diff > 1e-8): 
             delta = self.__get_weighted_distance(x, mu, h)
             mu = self.manifold.exp(delta, mu)
             diff = sum(delta*delta)
-            
+            # print(mu)
             it+=1
             if it >50:
                 raise RuntimeWarning('Gaussian mle not converged in 50 iterations.')
@@ -311,7 +313,7 @@ class Gaussian(object):
                 diff = sum(delta*delta)
                 # Max iterations
                 it+=1
-                if it >50:
+                if it >20000:
                     print('Conditioning did not converge in {0} its, Delta: {1}'.format(it, delta))
                     break
                     
