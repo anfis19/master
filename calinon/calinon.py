@@ -520,7 +520,7 @@ def plot_covariance_snake(means, covs, confidence=0.95, num_points=100):
     plt.show()
    
 def main():
-    dems = pbddata.get_letter_dataS2(letter='S',n_samples=4,use_time=True)
+    dems = pbddata.get_letter_dataS2(letter='Q',n_samples=4,use_time=True)
     data = [point for dem in dems for point in dem]
     data = sorted(data, key=lambda x: x[0][0])
 

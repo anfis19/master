@@ -33,8 +33,6 @@ from stochman.curves import DiscreteCurve
 from stochman import nnj
 import copy
 
-
-
 class VAE(nn.Module, EmbeddedManifold):
 
     def __init__(self, layers, batch_size, sigma=1e-6, sigma_z=0.1):
@@ -275,9 +273,9 @@ class VAE(nn.Module, EmbeddedManifold):
         rbf_beta = beta * torch.ones(1, self.num_clusters)
         k_means = KMeans(n_clusters=self.num_clusters).fit(z.numpy())
         if load_clusters:
-            k_means = pickle.load(open("../Clusters/" + "clusters.p", "rb"))
+            k_means = pickle.load(open("Clusters/" + "clusters.p", "rb"))
         else:
-            pickle.dump(k_means, open("../Clusters/" + "clusters.p", "wb"))
+            pickle.dump(k_means, open("Clusters/" + "clusters.p", "wb"))
         centers = torch.tensor(k_means.cluster_centers_)
         self.dec_std_pos = nnj.Sequential(nnj.RBF(d, self.num_clusters, points=centers, beta=rbf_beta),
                                           # d --> num_clusters
@@ -447,7 +445,9 @@ def test_model():
     # Graph based manifold generation
     ran = torch.linspace(-latent_max, latent_max, graph_size)
     x, y = torch.meshgrid(ran, ran)
+    print("x: ", x, " y: ", y)
     grid = torch.cat((x.unsqueeze(0), y.unsqueeze(0)))
+    print(grid)
     print("Compute graph-based manifold ...")
     discrete_model = discretized_manifold.DiscretizedManifold(model, grid)
     log_vae(model, test_traj[0], test_traj[-1], discrete_model=discrete_model )
@@ -548,3 +548,106 @@ def plot(model, measure, mf, geodesic):
     ax2.grid(False)
     plt.show()
 
+def createVAEtrajectory(data):
+    files = glob.glob(model_path + '/*.pt')
+
+    # Load the torch model
+    for fn in files:
+        model = VAE(layers=[dof, 200, 100, 2], batch_size=batch_size, sigma_z=encoder_scales[0]).to(device)
+        model.obstacle_input_space = None
+        model.init_std(train_data.tensors[0].float(), load_clusters=True)
+        checkpoint = torch.load(fn)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        encoder_scale = checkpoint['encoder_scale']
+        model.to(device)
+        model.disable_training()
+    
+    # Graph based manifold generation
+    ran = torch.linspace(-latent_max, latent_max, graph_size)
+    x, y = torch.meshgrid(ran, ran)
+    print("x: ", x, " y: ", y)
+    grid = torch.cat((x.unsqueeze(0), y.unsqueeze(0)))
+    print(grid)
+    print("Compute graph-based manifold ...")
+    discrete_model = discretized_manifold.DiscretizedManifold(model, grid)
+
+    model.eval()
+    # Encode points to manifold
+    print("p0", p0, "p1", p1)    
+    p0 = model.encode(torch.tensor(p0).float(), train_rbf=True)[1]
+    p1 = model.encode(torch.tensor(p1).float(), train_rbf=True)[1]
+    points = torch.cat((p0.view(1,-1),p1.view(1,-1)), 0)
+
+    curve, dist = discrete_model.shortest_path(p0, p1)
+    curve = discrete_model.connecting_geodesic(p0.view(1,-1), p1.view(1,-1), model, model.time_step) # Cubic spline
+    derivative_t0 = model.decode(curve.deriv(torch.zeros(1)), train_rbf=True)[0]
+    derivative_t0_var = derivative_t0.stddev.detach().numpy()
+    derivative_t0 = derivative_t0.mean.detach().numpy()
+    mu,cov = np.array_split(model.embed(p0.view(1,-1), False).detach().numpy()[0],2)
+    cov = np.diag(cov)
+    # cov = model.embed(p0.view(1,-1), False).detach().numpy()
+    # print("Spline derive variance at t=0:\n", cov)#, derivative_t0_var)
+    # derivative_t = model.decode(curve.deriv(torch.ones(1)*2), train_rbf=True)[0].mean.detach().numpy()
+    # print("\nSpline derive at t=1: ", derivative_t)
+    # log = (derivative_t0/np.linalg.norm(derivative_t0))*dist
+    # print("Log",log)
+    return mu, cov
+
+def main():
+    return 0
+
+
+
+if __name__ == "__main__":
+    # train = 0, visualization = 1
+    mode = 1
+
+    trajectory_number = 7  # the number of total demonstration files
+    test_id = 0  # the index of the demonstration used for testing
+    n_samples = 1
+    epochs = 1000  # training Mean
+    epochs_rbf = 1000  # training Variance
+    repetitions = 1  # number of training
+    encoder_scales = [1.0]  # predefined variance of the encoder
+    learning_rate = 1e-3  # learning rate
+    graph_size = 100  # the number of graph nodes in each dimension
+    dof = 6  # number of dimensions (input output vector size)
+    pos_dof = 3  # number of dimensions in the position data
+    qua_dof = 3  # number of dimensions in the orientation data
+    latent_max = 10  # metric visualization max/min. should be equal to Latent_max in auxilary_tests_toy_example.py
+    batch_size = 128  # training batch size
+    trajectory_length = 135  # number of points in each trajectory
+
+    r2_letter = "J"
+    s2_letter = "C"
+    loss = "elbo"
+    model_path = 'models'
+    device = 'cpu'
+    input_data = np.zeros((trajectory_number, trajectory_length))
+    name = "_delete_no_obstacles"
+    trajectory_flatten = None
+    plot_num = "0"
+
+    #------------- Define Input Data ----------------------------#
+    dems = pbddata.get_letter_dataS2(letter='Q',n_samples=4,use_time=True)
+    data = [point for dem in dems for point in dem]
+    data = sorted(data, key=lambda x: x[0][0])
+    input_data = np.array(list(map(lambda x: x[1], data)))
+    input_data = np.pad(input_data, ((0, 0), (0, 3)), mode='constant')  # Pad 3 rows below
+    print(input_data)
+
+    #------------- Train test split -----------------------------#
+    train_data = torch.utils.data.TensorDataset(torch.from_numpy(input_data).float())
+    x_train, x_test = train_test_split(train_data, test_size=0.3)
+
+    train_loader = torch.utils.data.DataLoader(x_train, batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(x_test, batch_size=batch_size, shuffle=True)
+
+    createVAEtrajectory(x_test)
+    # if mode == 0:
+    #     train_model()
+    # elif mode == 1:
+    #     test_model()
+
+
+    main()

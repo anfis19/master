@@ -444,7 +444,7 @@ def s1_log(x, g, reg=1e-10):
 
 def s1_parallel_transport(Xg, g, h, t=1):
     """Parallel transport of vectors in X from h to g*t"""
-    return Xg % (2*np.pi)
+    return Xg # % (2*np.pi)
     ht = s1_action(0, g, t * s1_log(h, g))  # Current position on circle
     return Xg + s1_log(ht, g)  # Simple addition in tangent space
 
