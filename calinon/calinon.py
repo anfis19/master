@@ -42,6 +42,11 @@ m3_pos_time = m_e1 * m3_pos
 m_time = m_e1 * m_e3
 m_t_s2 = m_e1 * m_s2
 
+# 2D manifolds
+m1_2d_pos_time = m_e1 * m_e2
+m2_2d_pos = m_s1 * m_e1
+m2_2d_pos_time = m_e1 * m2_2d_pos
+
 class Calinon:
     def __init__(self, points):
         ''' Initialisation of the class
@@ -58,7 +63,7 @@ class Calinon:
         # lik,avglik = gmm_m3.fit(points, reg_lambda=1e-2, maxsteps = 500)
 
 
-    def create_gaussians(self, manifold):
+    def create_gaussians(self, manifold, cylindrical_axis=None):
         ''' Create a gaussian distribution for each point on a given manifold
             Adds mean and sigma of gaussians to vectors.
         '''
@@ -73,6 +78,7 @@ class Calinon:
         # # print("Mu: ", self.mean[0])¨
         # g = rs.Gaussian(manifold).mle(self.points)
         gmm = rs.GMM(manifold, 10)
+        print(type(self.points), type(m2_2d_pos_time.id_elem))
         gmm.kmeans(self.points, maxsteps=500)
         lik,avglik = gmm.fit(self.points, reg_lambda=1e-2, maxsteps = 500)
         results = []
@@ -118,8 +124,27 @@ class Calinon:
                     # print("Sigma", results[idx].sigma)
                     mu = (p[i_in], results[idx].mu)
                     self.mean.append(mu)
-                self.mean = M2toR3(self.mean, axis='x')
+                self.mean = M2toR3(self.mean, axis=cylindrical_axis)
                 # print(self.mean)
+
+        if manifold == m1_2d_pos_time:
+            i_out = [1] # Output manifold index
+            for idx, p in enumerate(list(self.points)):
+                results.append(gmm.gmr(p[i_in],i_in=i_in,i_out=i_out)[0])
+                self.sigma.append(results[idx].sigma)
+                # print("Sigma", results[idx].sigma)
+                mu = (p[i_in], results[idx].mu)
+                self.mean.append(mu)
+
+        if manifold == m2_2d_pos_time:
+            i_out = [1,2] # Output manifold index
+            for idx, p in enumerate(list(self.points)):
+                results.append(gmm.gmr(p[i_in],i_in=i_in,i_out=i_out)[0])
+                self.sigma.append(results[idx].sigma)
+                # print("Sigma", results[idx].sigma)
+                mu = (p[i_in], results[idx].mu)
+                self.mean.append(mu)
+            self.mean = M2toR2_2D(self.mean)
 
     def get_mean(self, demonstration, manifold, point):
         ''' Takes a list of points at a time step, and returns the mean on a specified manifold.
@@ -149,10 +174,9 @@ class Calinon:
         return idx
     # Construct gaussians in different manifolds
 
-    def lqr_path(self):
+    def lqr_path(self, dim = 3):
         '''Computes LQR at each timestep on manifold
         '''
-        dim = 3
         # A = np.array([np.zeros(shape=(3,3)), np.zeros(shape=(3,3)), np.zeros(shape=(3,3)),np.zeros(shape=(3,3))]).reshape(6,6)
         # A[:3,3:] = np.identity(n=3,dtype=float)
         # B = np.array([np.zeros(shape=(3,3)), np.identity(n=3,dtype=float)]).reshape(6,3)
@@ -190,6 +214,7 @@ class Calinon:
         self.u = []
         for i in range(len(Q)):
             # print(Q[i])
+            print(Q[i])
             k_temp, S, E = control.lqr(A, B, Q[i], R)
             # self.K.append(k_temp[0:3,0:3] * np.identity(n=3))
             # self.D.append(k_temp[0:3,3:6] * np.identity(n=3))
@@ -206,6 +231,50 @@ class Calinon:
         np.linalg.cholesky(self.K)
         np.linalg.cholesky(self.D)
 
+
+def R2toM2_2D(data):
+    '''Convert euclidean R^2 list of data to the format of M2 manifold (polar coordinates)
+    Input: (t, point)
+    Output: (t, (rho), (phi))'''
+    output = []
+    for point in data:
+        t = point[0]
+        x = point[1][0]
+        y = point[1][1]
+        rho = np.sqrt(x**2 + y**2)
+        phi = np.arctan2(y, x)
+        if x == 0:
+            if y > 0:
+                phi = np.pi / 2
+            else:
+                phi = -np.pi / 2
+        rho = np.array([rho])
+        phi = np.array([phi])
+        new_point = [t, phi, rho]
+        output.append(tuple(new_point))
+    return output
+
+def M2toR2_2D(data):
+    '''Convert polar list of data to the format of R2 manifold
+    Input: (t, (rho),(phi))
+    Output: (t, point)
+    ''' 
+    output = []
+    for point in data:
+        point = np.array(point) 
+        t = point[0]
+        rho = point[-1][-1]
+        phi = point[-1][0]
+        if rho == 0:
+            print('Warning')
+            x = 0  
+            y = 0
+        else:
+            x = rho * np.cos(phi)
+            y = rho * np.sin(phi)
+        new_point = [t, np.array([x[0],y[0]])]
+        output.append(tuple(new_point))
+    return output
 
 def R3toM3(data):
     '''Convert euclidean R^3 list of data to the format of M3 manifold
@@ -520,90 +589,196 @@ def plot_covariance_snake(means, covs, confidence=0.95, num_points=100):
     plt.show()
    
 def main():
-    dems = pbddata.get_letter_dataS2(letter='Q',n_samples=4,use_time=True)
-    data = [point for dem in dems for point in dem]
-    data = sorted(data, key=lambda x: x[0][0])
+    dimensions = '3D' # or '2D'
+    stacked = True # Should 3D data be stacked letters
+    letters = ['A','S','C','J'] # Letters for testing
+    letters = ['J'] # Letters for testing
+    filepath = "calinon/experiments_gmr/stacked/" # Folder for experiment 
+    for letter in letters:
+        if dimensions == '3D':
+            dems = pbddata.get_letter_dataS2(letter=letter,n_samples=7,use_time=True)
+            data = [point for dem in dems for point in dem]
+            data = sorted(data, key=lambda x: x[0][0])
+
+            if stacked:
+                dems = pbddata.get_letter_data(letter=letter,n_samples=1,use_time=True)
+                data = [point for dem in dems for point in dem]
+
+                num_demos = 25  # Number of demonstrations
+
+                # Create incrementing z values
+                z_values = np.arange(0, num_demos * 0.1, 0.1)  # [0, 0.1, 0.2, ..., 4.9]
+
+                result = []
+                for z in z_values:
+                    for row in data:
+                        rand = 0 #np.random.uniform(-0.1,0.1)
+                        new_row = np.append(row, z+rand)  # Add z as a new element
+                        result.append(new_row)  # No need for extra dimension
+
+                data = [(np.array([row[0]]), row[1:]*0.1) for row in result]
+                data = sorted(data, key=lambda x: x[0][0])
+
+        if dimensions == '2D':
+            dems = pbddata.get_letter_data(letter=letter,n_samples=7,use_time=True)
+            data = [point for dem in dems for point in dem]
+            data = [(np.array([row[0]]), row[1:]*0.1) for row in data]
+            data = sorted(data, key=lambda x: x[0][0])
+
+        # -------------------- GMM -> GMR -> LQR ------------------------
+        if dimensions == '3D':
+            manifold = m_time
+            calinon_m1 = Calinon(data)
+            calinon_m1.create_gaussians(manifold)
+            calinon_m1.lqr_path()
+
+            m2_data = R3toM2(data, axis='x')
+            manifold = m2_pos_time
+            calinon_m2 = Calinon(m2_data)
+            calinon_m2.create_gaussians(manifold, 'x')
+            calinon_m2.lqr_path()
+
+            m2_y_data = R3toM2(data, axis='y')
+            manifold = m2_pos_time
+            calinon_y_m2 = Calinon(m2_y_data)
+            calinon_y_m2.create_gaussians(manifold, 'y')
+            calinon_y_m2.lqr_path()
+
+            m2_z_data = R3toM2(data, axis='z')
+            manifold = m2_pos_time
+            calinon_z_m2 = Calinon(m2_z_data)
+            calinon_z_m2.create_gaussians(manifold, 'z')
+            calinon_z_m2.lqr_path()
+
+            m3_data = R3toM3(data)
+            manifold = m3_pos_time
+            calinon_m3 = Calinon(m3_data)
+            calinon_m3.create_gaussians(manifold)
+            calinon_m3.lqr_path()
+
+        if dimensions == '2D':
+            manifold = m1_2d_pos_time
+            calinon_m1_2d = Calinon(data)
+            calinon_m1_2d.create_gaussians(manifold)
+            calinon_m1_2d.lqr_path(dim=2)
+
+            m2_data = R2toM2_2D(data)
+            manifold = m2_2d_pos_time
+            calinon_m2_2d = Calinon(m2_data)
+            calinon_m2_2d.create_gaussians(manifold)
+            calinon_m2_2d.lqr_path(dim=2)
+
+        # best_manifold = calinon.best_fit()
+        # print(best_manifold)
+
+        # -------------------- Admittance control ------------------------
+        if dimensions == '3D':
+            trajectory_m1 = generateTrajectory(calinon_m1)
+            trajectory_m2 = generateTrajectory(calinon_m2)
+            trajectory_y_m2 = generateTrajectory(calinon_y_m2)
+            trajectory_z_m2 = generateTrajectory(calinon_z_m2)
+            trajectory_m3 = generateTrajectory(calinon_m3)
+
+            all_trajectories = [trajectory_m1, trajectory_m2,trajectory_y_m2, trajectory_z_m2, trajectory_m3]
+            all_variance = [calinon_m1.sigma, calinon_m2.sigma, calinon_y_m2.sigma, calinon_z_m2.sigma, calinon_m3.sigma]
+            manifold_names = ['m1', 'm2x','m2y','m2z','m3']
+            for traj, var, manifold in zip(all_trajectories, all_variance, manifold_names):
+                sigma_diag = np.array(var).diagonal(axis1=1, axis2=2)
+                traj_var = np.concatenate((np.array(traj),sigma_diag),axis=1)
+                print(traj_var.shape)
+                filename = letter + '_' + manifold + '_mu_cov.csv'
+                np.savetxt(filepath+filename, traj_var, delimiter=",")
+
+        if dimensions == '2D':
+            trajectory_m1 = np.array([np.concatenate((t, coord)) for t, coord in calinon_m1_2d.mean])[:,1:]
+            print(trajectory_m1[:,1:].shape)
+            print(calinon_m1_2d.mean[0])
+            print(calinon_m2_2d.mean[0])
+            trajectory_m2 = np.array([np.concatenate((t, coord)) for t, coord in calinon_m2_2d.mean])[:,1:]
+            all_trajectories = [trajectory_m1, trajectory_m2]
+            all_variance = [calinon_m1_2d.sigma, calinon_m2_2d.sigma]
+            manifold_names = ['m1', 'm2']
+            for traj, var, manifold in zip(all_trajectories, all_variance, manifold_names):
+                sigma_diag = np.array(var).diagonal(axis1=1, axis2=2)
+                print("Sigma: ", sigma_diag.shape, " Traj: ", traj.shape)
+                traj_var = np.concatenate((np.array(traj),sigma_diag),axis=1)
+                print(traj_var.shape)
+                filename = letter + '_' + manifold + '_mu_cov.csv'
+                print(filename)
+                np.savetxt(filepath+filename, traj_var, delimiter=",")
 
 
-    line = np.vstack(pbddata.get_letter_dataS2(letter='S',n_samples=4,use_time=False))
-    time = np.linspace(0,1,800)
-    # print("Line shape: ", line.shape)
-    line = (line, np.flip(line, 0), time.reshape(800,1))
-    # print("Data", sorted(data, key=lambda x: x[0][0])[:10])
+        if dimensions == '3D':
+            #syntax for 3-D projection
+            plt.figure(figsize=(5,5) )
+            ax = plt.subplot(111,projection='3d')
+            s2_fcts.plot_manifold(ax)
+            plt_data = m_t_s2.swapto_tupleoflist(data)
+            print(plt_data[1].shape)
+            plt.plot(plt_data[1][:,0],plt_data[1][:,1],plt_data[1][:,2],'.', label='Demonstration')     # Original Data
+            plt_data = m_t_s2.swapto_tupleoflist(calinon_m1.mean)
+            plt.plot(plt_data[1][:,0],plt_data[1][:,1],plt_data[1][:,2],'.', label='Mean')     # Original Data
+            label = 'Gaussian'
+            #for r, s in zip(calinon.mean, calinon.sigma):
+            #    s2_fcts.plot_gaussian(ax,r[1],s, showtangent=False,
+            #                     linealpha=0.3,color='yellow',label=label)
+            #    label=''
+            # plt.legend(); plt.show()
 
+            fig = plt.figure(constrained_layout=True)
+            ax = fig.add_subplot(1, 1, 1,projection='3d')
+            sigma_diag = np.array(calinon_m1.sigma).diagonal(axis1=1, axis2=2)
+            print(np.array(calinon_m1.sigma).shape)
+            print(np.concatenate((np.array(trajectory_m1),sigma_diag),axis=1).shape)
+            ax.plot(trajectory_m1[:,0],trajectory_m1[:,1],trajectory_m1[:,2], 'blue', linewidth=2)
+            ax.plot(trajectory_m2[:,0],trajectory_m2[:,1],trajectory_m2[:,2], 'black', linewidth=2)
+            ax.plot(trajectory_y_m2[:,0],trajectory_y_m2[:,1],trajectory_y_m2[:,2], 'orange', linewidth=2)
+            ax.plot(trajectory_z_m2[:,0],trajectory_z_m2[:,1],trajectory_z_m2[:,2], 'brown', linewidth=2)
+            ax.plot(trajectory_m3[:,0],trajectory_m3[:,1],trajectory_m3[:,2], 'green', linewidth=2)
+            # plot_covariance_snake(trajectory_m1, calinon_m1.sigma)
+            # for i in range(0, len(calinon_m1.mean), 20):
+            #     # print("Mean: ", mean[1])
+            #     # print("Sigma: ", sigma)
+            #     plot_covariance_circle_in_3d(calinon_m1.mean[i][1], calinon_m1.sigma[i], ax)
+            demo = np.array(list(map(lambda x: x[1], data)))
+            filename = letter + '_demonstrations.csv'
+            np.savetxt(filepath+filename, np.array(demo), delimiter=",")
+            ax.scatter3D(demo[:,0],demo[:,1],demo[:,2], 'blue')
+            ax.legend(['M1','M2_x', 'M2_y','M2_z','M3', 'Demonstration', 'Demonstrstaion after m2'])
+            plt.show()
 
+        if dimensions == '2D':
+            fig = plt.figure(constrained_layout=True)
+            ax = fig.add_subplot(1, 1, 1)
+            ax.plot(trajectory_m1[:,0],trajectory_m1[:,1], 'blue', linewidth=2)
+            ax.plot(trajectory_m2[:,0],trajectory_m2[:,1], 'green', linewidth=2)
+            # plot_covariance_snake(trajectory_m1, calinon_m1.sigma)
+            # for i in range(0, len(calinon_m1.mean), 20):
+            #     # print("Mean: ", mean[1])
+            #     # print("Sigma: ", sigma)
+            #     plot_covariance_circle_in_3d(calinon_m1.mean[i][1], calinon_m1.sigma[i], ax)
+            demo = np.array(list(map(lambda x: x[1], data)))
+            filename = letter + '_demonstrations.csv'
+            np.savetxt(filepath+filename, np.array(demo), delimiter=",")
+            ax.scatter(demo[:,0],demo[:,1], c='red')
+            ax.legend(['M1','M2_x', 'M2_y','M2_z','M3', 'Demonstration', 'Demonstrstaion after m2'])
+            plt.show()
 
-    # -------------------- GMM -> GMR -> LQR ------------------------
-    manifold = m_time
-    calinon_m1 = Calinon(data)
-    calinon_m1.create_gaussians(manifold)
-    calinon_m1.lqr_path()
+        # plt.plot(trajectory)
+        # plt.legend(['x','y','z'])
+        # plt.show()
+        # start = trajectory[0]
+        # start = SE3.Trans(start)
+        # #print(robot.ik_LM(start))
+        # robot = rtb.models.UR5()
+        # robot.q = robot.ik_LM(start)[0]#robot.ik_LM(start)
 
-    m2_data = R3toM2(data, axis='x')
-    manifold = m2_pos_time
-    calinon_m2 = Calinon(m2_data)
-    calinon_m2.create_gaussians(manifold)
-    calinon_m2.lqr_path()
-
-    m3_data = R3toM3(data)
-    manifold = m3_pos_time
-    calinon_m3 = Calinon(m3_data)
-    calinon_m3.create_gaussians(manifold)
-    calinon_m3.lqr_path()
-
-    # best_manifold = calinon.best_fit()
-    # print(best_manifold)
-
-    # -------------------- Admittance control ------------------------
-    trajectory_m1 = generateTrajectory(calinon_m1)
-    trajectory_m2 = generateTrajectory(calinon_m2)
-    trajectory_m3 = generateTrajectory(calinon_m3)
-
-
-    #syntax for 3-D projection
-    plt.figure(figsize=(5,5) )
-    ax = plt.subplot(111,projection='3d')
-    s2_fcts.plot_manifold(ax)
-    plt_data = m_t_s2.swapto_tupleoflist(data)
-    plt.plot(plt_data[1][:,0],plt_data[1][:,1],plt_data[1][:,2],'.', label='Demonstration')     # Original Data
-    plt_data = m_t_s2.swapto_tupleoflist(calinon_m1.mean)
-    plt.plot(plt_data[1][:,0],plt_data[1][:,1],plt_data[1][:,2],'.', label='Mean')     # Original Data
-    label = 'Gaussian'
-    #for r, s in zip(calinon.mean, calinon.sigma):
-    #    s2_fcts.plot_gaussian(ax,r[1],s, showtangent=False,
-    #                     linealpha=0.3,color='yellow',label=label)
-    #    label=''
-    plt.legend(); plt.show()
-
-    ax = plt.axes(projection ='3d')
-
-    ax.plot3D(trajectory_m1[:,0],trajectory_m1[:,1],trajectory_m1[:,2], 'blue')
-    ax.plot3D(trajectory_m2[:,0],trajectory_m2[:,1],trajectory_m2[:,2], 'black')
-    ax.plot3D(trajectory_m3[:,0],trajectory_m3[:,1],trajectory_m3[:,2], 'green')
-    # plot_covariance_snake(trajectory_m1, calinon_m1.sigma)
-    # for i in range(0, len(calinon_m1.mean), 20):
-    #     # print("Mean: ", mean[1])
-    #     # print("Sigma: ", sigma)
-    #     plot_covariance_circle_in_3d(calinon_m1.mean[i][1], calinon_m1.sigma[i], ax)
-    demo = np.array(list(map(lambda x: x[1], data)))
-    ax.scatter3D(demo[:,0],demo[:,1],demo[:,2], 'blue')
-    ax.legend(['M1','M2', 'M3', 'Demonstration', 'Demonstrstaion after m2'])
-    plt.show()
-    plt.plot(trajectory)
-    plt.legend(['x','y','z'])
-    plt.show()
-    start = trajectory[0]
-    start = SE3.Trans(start)
-    #print(robot.ik_LM(start))
-    robot = rtb.models.UR5()
-    robot.q = robot.ik_LM(start)[0]#robot.ik_LM(start)
-
-    Tep = SE3.Trans(0.6, -0.3, 0.1) * SE3.OA([0, 1, 0], [0, 0, -1])
-    sol = robot.ik_LM(SE3.Trans(trajectory[-1]))         # solve IK
-    #print(sol)
-    q_pickup = sol[0]
-    qt = rtb.jtraj(robot.qr, q_pickup, 50)
-    robot.plot(qt.q, backend='pyplot')
+        # Tep = SE3.Trans(0.6, -0.3, 0.1) * SE3.OA([0, 1, 0], [0, 0, -1])
+        # sol = robot.ik_LM(SE3.Trans(trajectory[-1]))         # solve IK
+        # #print(sol)
+        # q_pickup = sol[0]
+        # qt = rtb.jtraj(robot.qr, q_pickup, 50)
+        # robot.plot(qt.q, backend='pyplot')
 
 
 

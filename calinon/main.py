@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 
 import roboticstoolbox as rtb
 from spatialmath import *
@@ -29,7 +30,7 @@ from calinon import *
 
 class VAE(nn.Module, EmbeddedManifold):
 
-    def __init__(self, layers, batch_size, sigma=1e-6, sigma_z=0.1):
+    def __init__(self, layers, batch_size, sigma=5e-8, sigma_z=0.1):
         """
         Create a Variational Auto-Encoder (VAE) neural network integrated with an embedded Riemannian manifold.
             Input:
@@ -361,6 +362,7 @@ def train(model, optimizer, loss_function, data_loader, epoch, device, train_rbf
         dataset_length: the dataset length
     """
     model.train()
+    loss = []
     for batch_idx, (data,) in enumerate(data_loader):
         data = data.to(device)
         # prevent crashing when the leftover training data is not enough got an epoch
@@ -368,9 +370,12 @@ def train(model, optimizer, loss_function, data_loader, epoch, device, train_rbf
             break
         optimizer.zero_grad()
         batch_loss, loss_kl, loss_log = loss_function(data, train_rbf)
+        loss.append(batch_loss.item())
         batch_loss.backward()
+        # print(batch_loss, loss_kl, loss_log)
         optimizer.step()
     print('Training ====> Epoch: {}/{}'.format(epoch, epochs))
+    return np.array(loss).mean()
 
 
 def train_model():
@@ -388,19 +393,29 @@ def train_model():
             model.activate_KL = True
             optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
             loss_function = lambda data, train_rbf: loss_function_elbo(data, model, train_rbf, n_samples=n_samples)
+            lossss=[]
             for epoch in range(int(epochs)):
-                train(model, optimizer, loss_function, train_loader, epoch, device, train_rbf=False)
+                l = train(model, optimizer, loss_function, train_loader, epoch, device, train_rbf=False)
+                lossss.append(l)
+            
+            # plt.plot(lossss)
+            # plt.show()
 
             # Focusing on reconstruction of the data
             model.activate_KL = False
             model.kl_coeff = 0.1
             params = list(model.decoder_loc.parameters())
             optimizer = torch.optim.Adam(params, lr=learning_rate)
+            lossss=[]
             for epoch in range(int(epochs)):
                 if epoch == int(epochs / 2):
                     model.empowered_quaternions = True
-                train(model, optimizer, loss_function, train_loader, epoch, device, train_rbf=False)
+                l=train(model, optimizer, loss_function, train_loader, epoch, device, train_rbf=False)
+                lossss.append(l)
             model.empowered_quaternions = False
+
+            # plt.plot(lossss)
+            # plt.show()
 
             # Train RBF/Variance networks
             model.init_std(train_data.tensors[0].float(), load_clusters=False)
@@ -408,6 +423,15 @@ def train_model():
 
             # Saving the model into a file
             fn = model_path + '/vae_loss%s_ns%d_es%f_r%d.pt' % (loss, n_samples, encoder_scale, repetition)
+            print('Saving model:', fn)
+            torch.save({'epoch': epoch,
+                        'model_state_dict': model.to('cpu').state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'repetition': repetition,
+                        'encoder_scale': encoder_scale}, fn)
+            
+            # Save model for experiments
+            fn = filepath + 'vae_loss%s_ns%d_es%f_r%d_letter%s.pt' % (loss, n_samples, encoder_scale, repetition, current_letter)
             print('Saving model:', fn)
             torch.save({'epoch': epoch,
                         'model_state_dict': model.to('cpu').state_dict(),
@@ -439,9 +463,9 @@ def test_model():
     # Graph based manifold generation
     ran = torch.linspace(-latent_max, latent_max, graph_size)
     x, y = torch.meshgrid(ran, ran)
-    print("x: ", x, " y: ", y)
+    # print("x: ", x, " y: ", y)
     grid = torch.cat((x.unsqueeze(0), y.unsqueeze(0)))
-    print(grid)
+    # print(grid)
     print("Compute graph-based manifold ...")
     discrete_model = discretized_manifold.DiscretizedManifold(model, grid)
 
@@ -559,9 +583,9 @@ def createVAEtrajectory(data):
     # Graph based manifold generation
     ran = torch.linspace(-latent_max, latent_max, graph_size)
     x, y = torch.meshgrid(ran, ran)
-    print("x: ", x, " y: ", y)
+    # print("x: ", x, " y: ", y)
     grid = torch.cat((x.unsqueeze(0), y.unsqueeze(0)))
-    print(grid)
+    # print(grid)
     print("Compute graph-based manifold ...")
     discrete_model = discretized_manifold.DiscretizedManifold(model, grid)
 
@@ -573,20 +597,38 @@ def createVAEtrajectory(data):
     p1 = model.encode(torch.tensor(p1).float(), train_rbf=True)[1]
     points = torch.cat((p0.view(1,-1),p1.view(1,-1)), 0)
 
+    encodedDecoded = []
+    for point in test_traj:
+        p = model.encode(torch.tensor(point).float(), train_rbf=True)[1]
+        decoded = model.decode(p.view(1,-1), train_rbf=True)[0].mean.detach().numpy()
+        print(decoded)
+        encodedDecoded.append(decoded[0])
+    encodedDecoded = np.array(encodedDecoded)
+    print(encodedDecoded)
+    
     curve, dist = discrete_model.shortest_path(p0, p1)
+    # print("Curve 1: ", curve)
     curve = discrete_model.connecting_geodesic(p0.view(1,-1), p1.view(1,-1), model, model.time_step) # Cubic spline
-    derivative_t0 = model.decode(curve.deriv(torch.zeros(1)), train_rbf=True)[0]
-    derivative_t0_var = derivative_t0.stddev.detach().numpy()
-    derivative_t0 = derivative_t0.mean.detach().numpy()
-    mu,cov = np.array_split(model.embed(p0.view(1,-1), False).detach().numpy()[0],2)
-    cov = np.diag(cov)
+    # derivative_t0 = model.decode(curve.deriv(torch.zeros(1)), train_rbf=True)[0]
+    # derivative_t0_var = derivative_t0.stddev.detach().numpy()
+    # derivative_t0 = derivative_t0.mean.detach().numpy()
+    curve_points = torch.linspace(0,1, 500, device=curve.device).reshape((-1,1))
+    # print("curve_points: ", curve_points)
+    # mu,cov = np.array_split(model.embed(p0.view(1,-1), False).detach().numpy()[0],2)
+    # print(curve(curve_points.transpose(1,0))[0])
+    embedded= model.embed(curve(curve_points.transpose(1,0)), False).detach().numpy()
+    positions = model.decode(curve(curve_points.transpose(1, 0)), train_rbf=True)[0].mean.detach().numpy()
+    mu = embedded[:, :, :6]
+    cov = embedded[:, :, 6:] 
+    print(mu.shape)
+    # cov = np.diag(cov)
     # cov = model.embed(p0.view(1,-1), False).detach().numpy()
     # print("Spline derive variance at t=0:\n", cov)#, derivative_t0_var)
     # derivative_t = model.decode(curve.deriv(torch.ones(1)*2), train_rbf=True)[0].mean.detach().numpy()
     # print("\nSpline derive at t=1: ", derivative_t)
     # log = (derivative_t0/np.linalg.norm(derivative_t0))*dist
     # print("Log",log)
-    return mu, cov
+    return mu, cov, embedded, encodedDecoded
 
 def main():
     return 0
@@ -595,7 +637,7 @@ def main():
 
 if __name__ == "__main__":
     # train = 0, visualization = 1
-    mode = 1
+    mode = 0
 
     trajectory_number = 7  # the number of total demonstration files
     test_id = 0  # the index of the demonstration used for testing
@@ -603,13 +645,13 @@ if __name__ == "__main__":
     epochs = 1000  # training Mean
     epochs_rbf = 1000  # training Variance
     repetitions = 1  # number of training
-    encoder_scales = [1.0]  # predefined variance of the encoder
+    encoder_scales = [1]  # predefined variance of the encoder
     learning_rate = 1e-3  # learning rate
     graph_size = 100  # the number of graph nodes in each dimension
-    dof = 6  # number of dimensions (input output vector size)
-    pos_dof = 3  # number of dimensions in the position data
+    dof = 5  # number of dimensions (input output vector size)
+    pos_dof = 2  # number of dimensions in the position data
     qua_dof = 3  # number of dimensions in the orientation data
-    latent_max = 10  # metric visualization max/min. should be equal to Latent_max in auxilary_tests_toy_example.py
+    latent_max = 20  # metric visualization max/min. should be equal to Latent_max in auxilary_tests_toy_example.py
     batch_size = 128  # training batch size
     trajectory_length = 135  # number of points in each trajectory
 
@@ -623,31 +665,89 @@ if __name__ == "__main__":
     trajectory_flatten = None
     plot_num = "0"
 
+    
+    current_letter = 'A'
+    letters = ['A','S','C','J'] # Letters for testing
+    # letters = ['S']
+    filepath = "experiments/2d_4nodes/" # Folder for experiment 
     #------------- Define Input Data ----------------------------#
-    dems = pbddata.get_letter_dataS2(letter='S',n_samples=4,use_time=True)
-    data = [point for dem in dems for point in dem]
-    data = sorted(data, key=lambda x: x[0][0])
-    input_data = np.array(list(map(lambda x: x[1], data)))
-    input_data = np.pad(input_data, ((0, 0), (0, 3)), mode='constant')  # Pad 3 rows below
-    print(input_data)
-    dems = pbddata.get_letter_dataS2(letter='S',n_samples=1,use_time=True)
-    data = [point for dem in dems for point in dem]
-    data = sorted(data, key=lambda x: x[0][0])
-    train_data = np.array(list(map(lambda x: x[1], data)))
-    train_data = np.pad(train_data, ((0, 0), (0, 3)), mode='constant') 
-    test_traj = train_data
+    for letter in letters:
+        current_letter=letter
+        dems = pbddata.get_letter_dataS2(letter=letter,n_samples=7,use_time=True)
+        data = [point for dem in dems for point in dem]
+        test_traj = input_data 
+        dems = pbddata.get_letter_data(letter=letter,n_samples=7,use_time=True)
+        data = [point for dem in dems for point in dem]
+
+        # num_demos = 25  # Number of demonstrations
+
+        # # Create incrementing z values
+        # z_values = np.arange(0, num_demos * 0.1, 0.1)  # [0, 0.1, 0.2, ..., 4.9]
+
+        # result = []
+        # for z in z_values:
+        #     for row in data:
+        #         rand = 0 #np.random.uniform(-0.1,0.1)
+        #         new_row = np.append(row, z+rand)  # Add z as a new element
+        #         result.append(new_row)  # No need for extra dimension
+        # data = [(np.array([row[0]]), row[1:]*0.1) for row in result]
+        data = [(np.array([row[0]]), row[1:]*0.1) for row in data]
+
+
+        data = sorted(data, key=lambda x: x[0][0])
+        input_data = np.array(list(map(lambda x: x[1], data)))
+        plot_data = input_data
+        print(plot_data.shape)
+        input_data = np.pad(input_data, ((0, 0), (0, 3)), mode='constant') # Pad 3 rows below
+        filename = letter + '_demonstrations.csv'
+        print(input_data.shape)
+        np.savetxt(filepath+filename, input_data, delimiter=",")
+        # print(input_data)
+        dems = pbddata.get_letter_dataS2(letter=letter,n_samples=1,use_time=True)
+        dems = pbddata.get_letter_data(letter=letter,n_samples=1,use_time=True)
+        data = [point for dem in dems for point in dem]
+        #------------------------ Next two lines should be removed when not 2D -----------#
+        data = [(np.array([row[0]]), row[1:]*0.1) for row in data]
+        data = sorted(data, key=lambda x: x[0][0])
+        #---------------------------------------------------------------------------------#
+        train_data = np.array(list(map(lambda x: x[1], data)))
+        train_data = np.pad(train_data, ((0, 0), (0, 3)), mode='constant') 
+        # test_traj = input_data # Keep this in for normal demonstrations
+        test_traj = train_data # Keep this in when doing stacked
     #------------- Train test split -----------------------------#
-    train_data = torch.utils.data.TensorDataset(torch.from_numpy(input_data).float())
-    x_train, x_test = train_test_split(train_data, test_size=0.3)
+        train_data = torch.utils.data.TensorDataset(torch.from_numpy(input_data).float())
+        x_train, x_test = train_test_split(train_data, test_size=0.3)
 
-    train_loader = torch.utils.data.DataLoader(x_train, batch_size=batch_size, shuffle=True)
-    test_loader = torch.utils.data.DataLoader(x_test, batch_size=batch_size, shuffle=True)
+        train_loader = torch.utils.data.DataLoader(x_train, batch_size=batch_size, shuffle=True)
+        test_loader = torch.utils.data.DataLoader(x_test, batch_size=batch_size, shuffle=True)
 
-    # print(createVAEtrajectory(x_test))
-    if mode == 0:
-        train_model()
-    elif mode == 1:
+        if mode == 0:
+            train_model()
+        elif mode == 1:
+            test_model()
+
+        mu, cov, embedded, decoded = createVAEtrajectory(x_test)
+        filename = letter + '_mu_cov.csv'
+        print("EMB",embedded.shape)
+        np.savetxt(filepath+filename, embedded[0], delimiter=",")
+        mu_position = mu[:, :, :3][0]
+        cov_position = cov[:, :, :3]
+        cov_diag = np.array([np.diag(vec) for vec in cov_position[0]])
+        # ax = plt.axes(projection ='3d')
+        ax = plt.axes()
+        print(embedded.shape)
+        # mu_position = positions[0]
+        # ax.plot(mu_position[:,0],mu_position[:,1],mu_position[:,2], 'blue', linewidth=2)
+        # ax.scatter(plot_data[:,0],plot_data[:,1],plot_data[:,2], 'red', alpha=0.5)
+        # ax.plot(decoded[:,0],decoded[:,1],decoded[:,2], 'green')
+        ax.plot(mu_position[:,0],mu_position[:,1], c='blue', linewidth=2)
+        ax.scatter(plot_data[:,0],plot_data[:,1], c='red', alpha=0.5)
+        ax.plot(decoded[:,0],decoded[:,1], c='green')
+        # ax.plot3D(test_traj[:,0],test_traj[:,1],test_traj[:,2], 'orange')
+        plt.show()
+        print("Mu", mu.shape)
+        print("Cov:", cov[0][0])
+        print("Cov: ", cov_diag)
         test_model()
-
 
     main()

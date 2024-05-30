@@ -408,15 +408,15 @@ def s1_action(x, g, h):
     """Moves x relative to g, to y relative to h"""
     if isinstance(x, list):
         x = np.array(x)
-    return (x - g + h) % (2 * np.pi)  # Modulo for staying on the circle
+    return (x - g + h + np.pi) % (2 * np.pi) - np.pi  # Modulo for staying on the circle
 
 def s1_exp_e(g_tan, reg=1e-6):
     """Maps tangent vectors at the origin to points on the circle"""
     if g_tan.ndim == 2:
-        return (g_tan + reg) % (2 * np.pi)  # Regularization within the circular domain
+        return (g_tan + np.pi + reg) % (2 * np.pi) - np.pi # Regularization within the circular domain
     else: 
         # Single mode
-        return (g_tan + reg) % (2 * np.pi)
+        return (g_tan + np.pi + reg) % (2 * np.pi) - np.pi
 
 def s1_log_e(g, reg=1e-10):
     """Maps points on the circle to the tangent space at the origin"""
@@ -429,7 +429,7 @@ def s1_log_e(g, reg=1e-10):
 
 def s1_exp(x, g, reg=1e-10):
     # print(g)
-    return (s1_exp_e(x, reg) + g ) % (2*np.pi)
+    return (s1_exp_e(x, reg) + g + np.pi ) % (2*np.pi) - np.pi
     # g = g.mean()
     # vec_x = np.cos(x)
     # vec_y = np.sin(x)
